@@ -7,8 +7,8 @@ import tempfile
 from dotenv import load_dotenv
 
 load_dotenv()
+genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
 
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
 class PDFChatApp:
     def __init__(self):
