@@ -4,8 +4,11 @@ import google.generativeai as genai
 import PyPDF2
 import pikepdf
 import tempfile
+from dotenv import load_dotenv
 
-genai.configure(api_key="GOOGLE_API_KEY")
+load_dotenv()
+
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
 class PDFChatApp:
     def __init__(self):
