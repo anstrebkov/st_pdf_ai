@@ -10,13 +10,27 @@ load_dotenv()
 genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
 
 
+PROMPT_TEMPLATE = """
+Context from PDF document:
+{context}
+
+Question: {question}
+
+Instructions:
+1. Carefully analyze the provided context
+2. Answer ONLY based on the information in the context
+3. If the answer is not clearly present, respond with "I cannot find the answer in the document"
+4. Be precise and concise
+5. Directly reference the relevant parts of the context in your answer
+"""
+
 class PDFChatApp:
     def __init__(self):
-        # Инициализация состояния приложения
-        st.set_page_config(page_title="PDF Чат с AI", page_icon="📄")
-        st.title("🤖 PDF Chat с  AI")
+        # Initialization of app state
+        st.set_page_config(page_title="PDF Chat with AI", page_icon="📄")
+        st.title("🤖 PDF Chat with AI")
 
-        # Инициализация сессионных состояний
+        # Initialization of session states
         if 'uploaded_files' not in st.session_state:
             st.session_state.uploaded_files = []
         if 'chat_history' not in st.session_state:
@@ -116,76 +130,77 @@ class PDFChatApp:
                 os.unlink(temp_file_path)
 
     def chat_interface(self):
-        st.header("💬 Взаимодействие с документами")
+        st.header("💬 Interact with Documents")
 
-        # Проверка наличия загруженных файлов
+        # Check for uploaded files
         if not st.session_state.uploaded_files:
-            st.warning("Пожалуйста, загрузите PDF-файлы в боковом меню")
+            st.warning("Please upload PDF files in the sidebar")
             return
 
-        # Выбор модели
+        # Select model
         model_choice = st.selectbox(
-            "Выберите модель Gemini",
+            "Select Gemini Model",
             ["gemini-1.5-flash"]
         )
 
-        # Сохранение выбранной модели в сессии
+        # Save selected model in session
         st.session_state['selected_model'] = model_choice
 
-        # Текстовый ввод
-        user_query = st.text_input("Введите ваш вопрос к документам")
+        # Text input
+        user_query = st.text_input("Enter your question about the documents")
 
-        if st.button("Отправить запрос"):
+        if st.button("Submit Request"):
             if not user_query:
-                st.error("Введите запрос")
+                st.error("Please enter a query")
                 return
 
             try:
-                # Подготовка документов для запроса
+                # Prepare documents for the request
                 selected_gemini_files = [
                     file['gemini_file'] for file in st.session_state.uploaded_files
                 ]
 
                 if not selected_gemini_files:
-                    st.error("Не удалось найти документы для анализа.")
+                    st.error("Unable to find documents for analysis.")
                     return
 
-                # Инициализация модели
+                # Initialize model
                 model = genai.GenerativeModel(model_choice)
 
-                # Формирование контента для запроса
-                query_content = [user_query] + selected_gemini_files
+                # Construct prompt content
+                context = "\n\n".join([file['text'] for file in st.session_state.uploaded_files])
+                prompt_content = PROMPT_TEMPLATE.format(context=context, question=user_query)
 
-                # Генерация ответа
-                response = model.generate_content(query_content)
+                # Generate response
+                response = model.generate_content(prompt_content)
 
-                # Отображение результата
-                st.success("🤖 Ответ :")
+                # Display result
+                st.success("🤖 Response:")
                 st.write(response.text)
 
-                # Сохранение истории чата
+                # Save chat history
                 st.session_state.chat_history.append({
                     'query': user_query,
                     'response': response.text
                 })
 
             except Exception as e:
-                st.error(f"Ошибка при генерации ответа: {e}")
+                st.error(f"Error generating response: {e}")
 
-        # История чата
+        # Chat history
         if st.session_state.chat_history:
-            with st.expander("📜 История чата"):
+            with st.expander("📜 Chat History"):
                 for chat in st.session_state.chat_history:
-                    st.markdown(f"**Запрос:** {chat['query']}")
-                    st.markdown(f"**Ответ:** {chat['response']}")
+                    st.markdown(f"**Query:** {chat['query']}")
+                    st.markdown(f"**Response:** {chat['response']}")
                     st.divider()
 
     def run(self):
-        """Основной метод запуска приложения"""
+        """Main method to run the application"""
         self.process_documents()
         self.chat_interface()
 
-# Запуск приложения
+# Run the application
 if __name__ == "__main__":
     app = PDFChatApp()
     app.run()
