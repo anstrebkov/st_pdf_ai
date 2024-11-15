@@ -4,139 +4,139 @@ import google.generativeai as genai
 import PyPDF2
 import pikepdf
 import tempfile
+import hashlib
 from dotenv import load_dotenv
 
 load_dotenv()
 genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
 
+# Initialize session state
+if 'uploaded_files' not in st.session_state:
+    st.session_state.uploaded_files = []
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+if 'text_cache' not in st.session_state:
+    st.session_state.text_cache = {}
 
-ROMPT_TEMPLATE = """
-Контекст из PDF-документа:
-{context}
+# Use Streamlit's caching
+@st.cache_data
+def extract_text_from_pdf_cached(file_content):
+    """Cached function to extract text from PDF using file content hash as cache key"""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(file_content)
+            temp_file_path = temp_file.name
+            
+            with open(temp_file_path, 'rb') as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                extracted_text = ""
+                for page in pdf_reader.pages:
+                    try:
+                        text = page.extract_text()
+                        if text:
+                            extracted_text += text + "\n\n"
+                    except Exception:
+                        continue
 
-Вопрос: {question}
+            os.unlink(temp_file_path)
+            return extracted_text if extracted_text.strip() else None
+    except Exception:
+        return None
 
-Инструкции:
-1. Внимательно проанализируйте предоставленный контекст
-2. Отвечайте ТОЛЬКО на основе информации, содержащейся в контексте
-3. Если ответ не содержится в документе, ответьте "Я не могу найти ответ в документе"
-4. Будьте точными и лаконичными
-5. Напрямую ссылайтесь на соответствующие части контекста в вашем ответе
-"""
+@st.cache_data
+def extract_text_with_pikepdf_cached(file_content):
+    """Cached function to extract text using pikepdf"""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(file_content)
+            temp_file_path = temp_file.name
+            
+            pdf = pikepdf.Pdf.open(temp_file_path)
+            extracted_text = ""
+            for page in pdf.pages:
+                try:
+                    text_extraction = page.extract_text()
+                    if text_extraction:
+                        extracted_text += text_extraction + "\n\n"
+                except Exception:
+                    continue
+
+            os.unlink(temp_file_path)
+            return extracted_text if extracted_text.strip() else None
+    except Exception:
+        return None
 
 class PDFChatApp:
     def __init__(self):
-        # Initialization of app state
-        st.set_page_config(page_title="Чат с PDF и AI", page_icon="📄")
+        st.set_page_config(page_title="Чат с PDF и AI", page_icon="📄", layout="wide")
         st.title("🤖 Чат с PDF и AI")
-
-        # Initialization of session states
-        if 'uploaded_files' not in st.session_state:
-            st.session_state.uploaded_files = []
-        if 'chat_history' not in st.session_state:
-            st.session_state.chat_history = []
-        
-        # Initialize the cache dictionary
-        self.text_cache = {}
-
-def extract_text_from_pdf(self, pdf_path):
-    # Check the cache first
-    if pdf_path in self.text_cache:
-        return self.text_cache[pdf_path]
-
-    try:
-        with open(pdf_path, 'rb') as pdf_file:
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            extracted_text = ""
-            for page in pdf_reader.pages:
-                try:
-                    text = page.extract_text()
-                    if text:
-                        extracted_text += text + "\n\n"
-                except Exception as page_error:
-                    st.warning(f"Не удалось извлечь текст со страницы: {page_error}")
-
-            if not extracted_text.strip():
-                st.error("Не удалось извлечь текст из PDF. Возможно, документ защищен или имеет сложную структуру.")
-                return None
-
-            # Cache the extracted text
-            self.text_cache[pdf_path] = extracted_text
-            return extracted_text
-    except Exception as e:
-        st.error(f"Ошибка при чтении PDF: {e}")
-        return None
-
-def extract_text_with_pikepdf(self, pdf_path):
-    # Check the cache first
-    if pdf_path in self.text_cache:
-        return self.text_cache[pdf_path]
-
-    try:
-        pdf = pikepdf.Pdf.open(pdf_path)
-        extracted_text = ""
-        for page in pdf.pages:
-            try:
-                text_extraction = page.extract_text()
-                if text_extraction:
-                    extracted_text += text_extraction + "\n\n"
-            except Exception as page_error:
-                st.warning(f"Не удалось извлечь текст со страницы: {page_error}")
-
-        if not extracted_text.strip():
-            st.error("Не удалось извлечь текст с помощью pikepdf")
-            return None
-
-        # Cache the extracted text
-        self.text_cache[pdf_path] = extracted_text
-        return extracted_text
-    except Exception as e:
-        st.error(f"Ошибка при чтении PDF с помощью pikepdf: {e}")
-        return None
-
-    def upload_file_to_gemini(self, file_path):
-        try:
-            uploaded_file = genai.upload_file(file_path)
-            return uploaded_file
-        except Exception as e:
-            st.error(f"Ошибка при загрузке файла: {e}")
-            return None
 
     def process_documents(self):
         st.sidebar.header("📤 Загрузка документов")
+        
+        # Clear cache button
+        if st.sidebar.button("Очистить кэш"):
+            st.session_state.text_cache = {}
+            st.session_state.uploaded_files = []
+            st.session_state.chat_history = []
+            st.cache_data.clear()
+            st.sidebar.success("Кэш очищен")
+            return
+
         uploaded_files = st.sidebar.file_uploader(
             "Выберите PDF-файлы",
             type=['pdf'],
-            accept_multiple_files=True
+            accept_multiple_files=True,
+            key="pdf_uploader"
         )
 
         if uploaded_files:
-            for uploaded_file in uploaded_files:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-                    temp_file.write(uploaded_file.getvalue())
-                    temp_file_path = temp_file.name
+            with st.spinner("Обработка документов..."):
+                for uploaded_file in uploaded_files:
+                    file_content = uploaded_file.read()
+                    
+                    # Create a hash of file content for caching
+                    file_hash = hashlib.md5(file_content).hexdigest()
+                    
+                    # Check if text is already in cache
+                    if file_hash in st.session_state.text_cache:
+                        extracted_text = st.session_state.text_cache[file_hash]
+                    else:
+                        # Try different extraction methods
+                        extracted_text = extract_text_from_pdf_cached(file_content)
+                        if not extracted_text:
+                            extracted_text = extract_text_with_pikepdf_cached(file_content)
+                        
+                        if extracted_text:
+                            st.session_state.text_cache[file_hash] = extracted_text
 
-                extracted_text = self.extract_text_from_pdf(temp_file_path)
-                if not extracted_text:
-                    extracted_text = self.extract_text_with_pikepdf(temp_file_path)
+                    if extracted_text:
+                        try:
+                            # Create temporary file for Gemini upload
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+                                temp_file.write(file_content)
+                                gemini_file = genai.upload_file(temp_file.name)
+                                os.unlink(temp_file.name)
 
-                if extracted_text:
-                    try:
-                        gemini_file = self.upload_file_to_gemini(temp_file_path)
-                        if gemini_file:
-                            st.sidebar.success(f"✅ Файл {uploaded_file.name} успешно загружен")
-                            st.session_state.uploaded_files.append({
-                                'name': uploaded_file.name,
-                                'path': temp_file_path,
-                                'gemini_file': gemini_file,
-                                'text': extracted_text
-                            })
-                    except Exception as upload_error:
-                        st.sidebar.error(f"Ошибка загрузки файла {uploaded_file.name}: {upload_error}")
-                else:
-                    st.sidebar.error(f"Не удалось извлечь текст из файла {uploaded_file.name}")
-
-                os.unlink(temp_file_path)
+                            if gemini_file:
+                                # Store file info in session state
+                                file_info = {
+                                    'name': uploaded_file.name,
+                                    'hash': file_hash,
+                                    'gemini_file': gemini_file,
+                                    'text': extracted_text
+                                }
+                                
+                                # Check if file already exists in uploaded_files
+                                existing_files = [f['hash'] for f in st.session_state.uploaded_files]
+                                if file_hash not in existing_files:
+                                    st.session_state.uploaded_files.append(file_info)
+                                    st.sidebar.success(f"✅ Файл {uploaded_file.name} успешно загружен")
+                                
+                        except Exception as upload_error:
+                            st.sidebar.error(f"Ошибка загрузки файла {uploaded_file.name}: {str(upload_error)}")
+                    else:
+                        st.sidebar.error(f"Не удалось извлечь текст из файла {uploaded_file.name}")
 
     def chat_interface(self):
         st.header("💬 Взаимодействие с документами")
@@ -145,53 +145,65 @@ def extract_text_with_pikepdf(self, pdf_path):
             st.warning("Пожалуйста, загрузите PDF-файлы в боковом меню")
             return
 
-        model_choice = st.selectbox(
-            "Выберите модель Gemini",
-            ["gemini-1.5-flash"]
-        )
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            model_choice = st.selectbox(
+                "Выберите модель Gemini",
+                ["gemini-1.5-flash"],
+                key="model_selector"
+            )
 
-        st.session_state['selected_model'] = model_choice
+            user_query = st.text_area(
+                "Введите ваш вопрос к документам",
+                height=100,
+                key="query_input"
+            )
 
-        user_query = st.text_input("Введите ваш вопрос к документам")
-
-        if st.button("Отправить запрос"):
-            if not user_query:
-                st.error("Пожалуйста, введите запрос")
-                return
-
-            try:
-                selected_gemini_files = [
-                    file['gemini_file'] for file in st.session_state.uploaded_files
-                ]
-
-                if not selected_gemini_files:
-                    st.error("Не удалось найти документы для анализа.")
+            if st.button("Отправить запрос", key="submit_button"):
+                if not user_query:
+                    st.error("Пожалуйста, введите запрос")
                     return
 
-                model = genai.GenerativeModel(model_choice)
+                try:
+                    with st.spinner("Генерация ответа..."):
+                        model = genai.GenerativeModel(model_choice)
+                        context = "\n\n".join([file['text'] for file in st.session_state.uploaded_files])
+                        
+                        prompt = f"""
+                        Контекст из PDF-документов:
+                        {context}
 
-                context = "\n\n".join([file['text'] for file in st.session_state.uploaded_files])
-                prompt_content = PROMPT_TEMPLATE.format(context=context, question=user_query)
+                        Вопрос: {user_query}
 
-                response = model.generate_content(prompt_content)
+                        Инструкции:
+                        1. Внимательно проанализируйте предоставленный контекст
+                        2. Отвечайте ТОЛЬКО на основе информации из контекста
+                        3. Если ответ не найден, укажите "Я не могу найти ответ в документе"
+                        4. Будьте точными и лаконичными
+                        5. Ссылайтесь на соответствующие части контекста
+                        """
 
-                st.success("🤖 Ответ:")
-                st.write(response.text)
+                        response = model.generate_content(prompt)
+                        
+                        st.success("🤖 Ответ:")
+                        st.write(response.text)
+                        
+                        st.session_state.chat_history.append({
+                            'query': user_query,
+                            'response': response.text
+                        })
 
-                st.session_state.chat_history.append({
-                    'query': user_query,
-                    'response': response.text
-                })
+                except Exception as e:
+                    st.error(f"Ошибка при генерации ответа: {str(e)}")
 
-            except Exception as e:
-                st.error(f"Ошибка при генерации ответа: {e}")
-
-        if st.session_state.chat_history:
-            with st.expander("📜 История чата"):
-                for chat in st.session_state.chat_history:
-                    st.markdown(f"**Запрос:** {chat['query']}")
-                    st.markdown(f"**Ответ:** {chat['response']}")
-                    st.divider()
+        with col2:
+            if st.session_state.chat_history:
+                st.subheader("📜 История чата")
+                for i, chat in enumerate(st.session_state.chat_history):
+                    with st.expander(f"Диалог {i + 1}"):
+                        st.markdown(f"**Вопрос:** {chat['query']}")
+                        st.markdown(f"**Ответ:** {chat['response']}")
 
     def run(self):
         self.process_documents()
