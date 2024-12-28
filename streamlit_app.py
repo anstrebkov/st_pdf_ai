@@ -68,7 +68,7 @@ def extract_text_with_pikepdf_cached(file_content):
 
 class PDFChatApp:
     def __init__(self):
-        st.set_page_config(page_title="Чат с PDF и AI", page_icon="📄", layout="wide")
+        st.set_page_config(page_title="Чат с PDF", page_icon="📄", layout="wide")
         st.title(":books: Чат с PDF")
 
     def process_documents(self):
