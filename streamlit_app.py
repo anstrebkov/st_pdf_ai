@@ -150,7 +150,7 @@ class PDFChatApp:
         with col1:
             model_choice = st.selectbox(
                 "Выберите модель Gemini",
-                ["gemini-1.5-flash"],
+                ["gemini-2.0-flash"],
                 key="model_selector"
             )
 
